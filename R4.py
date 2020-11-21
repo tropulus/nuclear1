@@ -1,3 +1,7 @@
+import math
+import numpy as np
+
+
 class Reaktor:
     def __init__(self, termiskEffekt, drifttryck, n_bransleelement, branslevikt, P, anrikning, N_Th232_N_U238):
 
@@ -6,6 +10,11 @@ class Reaktor:
         self.drifttryck = drifttryck #[MPa]
         self.n_bransleelement = n_bransleelement #Antal bränsleelement
         self.branslevikt = branslevikt #Vikt per bränsleelement [kg]
+        self.radie = 0.41  # cm
+        self.B1_th = 0.0082768
+        self.fuel_T = 800  # K
+        self.vu_vm = 3  # volymförhållande (scholars remain divided of the value of this parameter)
+        self.xi = 0.92  # dubbelkolla den här
 
         self.P = P #Ickeläckagefaktor
         self.anrikning = anrikning #Anrikningsgrad
@@ -39,6 +48,8 @@ class Reaktor:
         self.sig_233_f = 514*self.barn
         self.sig_233_g = 42*self.barn
         self.sig_233_a = self.sig_233_f + self.sig_233_g
+        self.sigma_tot_w = 44 * self.barn  # dubbelkolla den här (för vatten)
+
 
     def calc_konversion(self):
         self.c = (self.sig_238_a*self.N_U238+self.sig_232_a*self.N_Th232)/(self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233) \
@@ -46,7 +57,21 @@ class Reaktor:
                  *self.epsilon*self.nu*self.P*(1-self.p)
 
     def calc_p(self): #Beräkning av resonaspassagefaktor
-        self.p = 0.76
+        B1_U = 6.1 * 10 ** -3 + 0.94 * 10 ** -2 / (self.radie * self.rho_UO2)
+        B1_Th = self.B1_th  # uträknat med integralförhållande
+        sigma_300K_U = (3.0 + 39.6 / math.sqrt(self.radie * self.rho_UO2)) * 10 ** -24  # cm^2
+        S = self.radie * 2 * math.pi * 1  # yta bränslekuts
+        m = self.radie ** 2 * math.pi * 1 * self.rho_ThO2  # volym * densitet = massa
+        sigma_300K_Th = (6.5 + 15.6 / math.sqrt(S/m)) * 10 ** -24  # cm^2
+        sigma_fuel_T_U = sigma_300K_U * (1 + B1_U * (math.sqrt(self.fuel_T) - math.sqrt(300)))
+        sigma_fuel_T_U = sigma_300K_Th * (1 + B1_Th * (math.sqrt(self.fuel_T) - math.sqrt(300)))
+        p_U = math.exp(-(1 - self.anrikning) * self.N_U238 * sigma_fuel_T_U * self.vu_vm /
+                     (self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
+        p_Th = math.exp(-(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_U * self.vu_vm /
+                     (self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
+        return p_U, p_Th
+
+
 
     def calc_fission(self):
         chans_235 = self.N_U235*self.sig_235_f/(self.N_U235*self.sig_235_f + self.N_Pu239*self.sig_239_f)
@@ -79,7 +104,7 @@ def main():
     R4.calc_FR()
     R4.calc_n_phi()
     R4.calc_eta()
-    R4.calc_p()
+    R4.calc_p()  # uppdatera anrikning först
 
     for _ in range(1_000):
         R4.calc_konversion()
