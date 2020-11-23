@@ -16,6 +16,9 @@ class Reaktor:
         self.fuel_T = 800  # K
         self.vu_vm = 3.02  # volymförhållande fr. test.py
         self.xi = 0.91  # KSU s.82
+        self.bränsleelement = 157
+        self.stavar = 264
+        self.längd = 3.42 * 100  # uträknat med data från specifikationen\bränsleelement densitet & n_stavar
 
         self.P = P  # Ickeläckagefaktor
         self.anrikning = anrikning  # Anrikningsgrad
@@ -26,6 +29,9 @@ class Reaktor:
         self.rho_ThO2 = 10  # Densitet Thouriumoxid g*cm^-3
         self.nu = 2.43  # Antalet neutroner som frigörs vid fission
         self.epsilon = 1.06  # Snabba fissionsfaktorn
+        self.k = 1
+        self.reak = 0
+        self.l = 0.0001
 
         # Antal atomkärnor
         self.N_Pa233 = 0
@@ -113,19 +119,37 @@ class Reaktor:
         self.anrikning = (self.N_U235 + self.N_Pu239 + self.N_U233)/(self.N_U235 + self.N_Pu239 + self.N_U233 +
                                                                      self.N_U238 + self.N_Th232)
 
+    def calc_reaktivitet(self):
+        self.reak = (self.k - 1) / self.k
+
+    def calc_effekt(self):
+        self.termiskEffekt = self.termiskEffekt*math.exp(self.reak*3600/self.l)
+
+    def calc_lin_heat_rate(self):
+        self.lin_Q = self.termiskEffekt/self.bränsleelement/self.stavar/self.längd  # W/cm
+# https://www.nuclear-power.net/nuclear-engineering/heat-transfer/thermal-conduction/heat-conduction-equation/heat-conduction-in-a-fuel-rod/
+
+
 
 def main():
     R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, 0.10)
     R4.calc_FR()
     R4.calc_n_phi()
     R4.calc_eta()
-    R4.anrikning()
+    #R4.anrikning()
     R4.calc_p()
+    R4.calc_lin_heat_rate()
+    print('linq',R4.lin_Q)
 
-    for _ in range(1_000):
-        R4.calc_konversion()
-        R4.calc_fission()
+#    for _ in range(1_000):
+        #R4.calc_konversion()
+        #R4.calc_fission()
 
 
-if __name__ == "__main__":
-    main()
+#if __name__ == "__main__":
+#    main()
+
+
+# räkna ut bränsletemperaturen -> räkna ut moderator -> temperaturen
+
+main()
