@@ -1,5 +1,7 @@
 import math
 import numpy as np
+from pyXSteam.XSteam import XSteam
+steamTable = XSteam(XSteam.UNIT_SYSTEM_MKS) # m/kg/sec/°C/bar/W
 
 
 class Reaktor:
@@ -9,16 +11,20 @@ class Reaktor:
         # Reaktorparametrar
         self.termiskEffekt = termiskEffekt  # [W]
         self.drifttryck = drifttryck  # [MPa]
-        self.n_bransleelement = n_bransleelement  # Antal bränsleelement
-        self.branslevikt = branslevikt  # Vikt per bränsleelement [kg]
+        self.n_bransleelement = n_bransleelement  # Antal bransleelement
+        self.branslevikt = branslevikt  # Vikt per bransleelement [kg]
+        self.bransleelement = 157
+        self.fuel_w = self.branslevikt * self.bransleelement
         self.radie = 0.41  # cm
         self.B1_th = 0.0082768
         self.fuel_T = 800  # K
         self.vu_vm = 3.02  # volymförhållande fr. test.py
         self.xi = 0.91  # KSU s.82
-        self.bränsleelement = 157
         self.stavar = 264
-        self.längd = 3.42 * 100  # uträknat med data från specifikationen\bränsleelement densitet & n_stavar
+        self.langd = 3.42 * 100  # uträknat med data från specifikationen\bransleelement densitet & n_stavar
+        self.thermCon = 0.024  # W/cm*K
+        self.tot_kyl_flow = 142223  # kg/s
+        self.sek_kontakt = 3.02165418695  # sekunder som kylvattnet kommer ha kontakt med samma stav
 
         self.P = P  # Ickeläckagefaktor
         self.anrikning = anrikning  # Anrikningsgrad
@@ -32,6 +38,14 @@ class Reaktor:
         self.k = 1
         self.reak = 0
         self.l = 0.0001
+        self.timeStep=1E-3
+        self.vatten_temp = 282.7  # kylvatten temp (t_in)
+        self.U_vatten = 14.3  # W/cm/K
+        self.t_u = 1000  # bränsletemperatur
+        self.c_p_UO2 = 0.4 * 1000  # J/(kgּK)
+        self.c_p_H2O = 0.419 * 1000  # J/(kgּK)
+        self.rho_set_w = steamTable.rho_pt(self.drifttryck*10, self.vatten_temp)
+
 
         # Antal atomkärnor
         self.N_Pa233 = 0
@@ -123,33 +137,39 @@ class Reaktor:
         self.reak = (self.k - 1) / self.k
 
     def calc_effekt(self):
-        self.termiskEffekt = self.termiskEffekt*math.exp(self.reak*3600/self.l)
+        self.termiskEffekt = self.termiskEffekt*math.exp(self.reak*3600/self.l)  # W
 
     def calc_lin_heat_rate(self):
-        self.lin_Q = self.termiskEffekt/self.bränsleelement/self.stavar/self.längd  # W/cm
-# https://www.nuclear-power.net/nuclear-engineering/heat-transfer/thermal-conduction/heat-conduction-equation/heat-conduction-in-a-fuel-rod/
+        self.lin_Q = self.termiskEffekt/self.bransleelement/self.stavar/self.langd  # W/cm
+        self.tempDiff = self.lin_Q/(4 * math.pi * self.thermCon)  # slide 10 F10
+        q_water = self.U_vatten * (self.t_u - self.tempDiff)
+        heat_to_w = q_water * self.sek_kontakt
+        m = 0.42114504425  # uträknat värde för vatten kring bränslestaven
+        self.t_out = heat_to_w/(m*self.c_p_H2O) + self.vatten_temp
+        self.rho_w = steamTable.rho_pt(self.drifttryck*10, (self.t_out + self.vatten_temp)/2)
+
+    def calc_volymf(self):
+        r_c = 3.355 / 2  # m, uträknad härdradie
+        r_b = self.radie / 100  # m, bränslekutsradie
+        area_b = r_b ** 2 * math.pi * 264 * 157
+        area_s = r_b ** 2 * math.pi * 48 * 24
+        area_m = r_c ** 2 * math.pi - area_b - area_s
+        area_m *= self.rho_w/self.rho_set_w
+        self.vu_vm = area_m/area_b
+
+    def calcdT_dt(self):
+        p_bort = self.lin_Q*self.bransleelement/self.stavar/self.langd
+        self.dT_dt = ((self.termiskEffekt - p_bort) * self.timeStep) / (self.c_p_UO2 * self.fuel_w)
+        self.t_u += self.dT_dt
 
 
 
 def main():
     R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, 0.10)
-    R4.calc_FR()
-    R4.calc_n_phi()
-    R4.calc_eta()
-    #R4.anrikning()
-    R4.calc_p()
-    R4.calc_lin_heat_rate()
-    print('linq',R4.lin_Q)
-
-#    for _ in range(1_000):
-        #R4.calc_konversion()
-        #R4.calc_fission()
+    for _ in range(1_000):
+            R4.calc_konversion()
+            R4.calc_fission()
 
 
-#if __name__ == "__main__":
-#    main()
-
-
-# räkna ut bränsletemperaturen -> räkna ut moderator -> temperaturen
-
-main()
+if __name__ == "__main__":
+   main()
