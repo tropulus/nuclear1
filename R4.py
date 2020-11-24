@@ -1,5 +1,4 @@
 import math
-import numpy as np
 from pyXSteam.XSteam import XSteam
 steamTable = XSteam(XSteam.UNIT_SYSTEM_MKS) # m/kg/sec/°C/bar/W
 
@@ -41,7 +40,6 @@ class Reaktor:
         self.timeStep=1E-3
         self.vatten_temp = 282.7  # kylvatten temp (t_in)
         self.U_vatten = 14.3  # W/cm/K
-        self.t_u = 1000  # bränsletemperatur
         self.c_p_UO2 = 0.4 * 1000  # J/(kgּK)
         self.c_p_H2O = 0.419 * 1000  # J/(kgּK)
         self.rho_set_w = steamTable.rho_pt(self.drifttryck*10, self.vatten_temp)
@@ -88,9 +86,9 @@ class Reaktor:
         S = self.radie * 2 * math.pi * 1  # yta bränslekuts
         m = self.radie ** 2 * math.pi * 1 * self.rho_ThO2  # volym * densitet = massa
         sigma_300K_Th = (6.5 + 15.6 / math.sqrt(S/m)) * 10 ** -24  # cm^2
-        sigma_fuel_T_U = sigma_300K_U * (1 + B1_U * (math.sqrt(self.fuel_T) - math.sqrt(300)))
+        sigma_fuel_fuel_T = sigma_300K_U * (1 + B1_U * (math.sqrt(self.fuel_T) - math.sqrt(300)))
         sigma_fuel_T_Th = sigma_300K_Th * (1 + B1_Th * (math.sqrt(self.fuel_T) - math.sqrt(300)))
-        self.p_U = math.exp(-(1 - self.anrikning) * self.N_U238 * sigma_fuel_T_U * self.vu_vm /(self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
+        self.p_U = math.exp(-(1 - self.anrikning) * self.N_U238 * sigma_fuel_fuel_T * self.vu_vm /(self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
         self.p_Th = math.exp(-(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_Th * self.vu_vm /
                      (self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
 
@@ -142,7 +140,7 @@ class Reaktor:
     def calc_lin_heat_rate(self):
         self.lin_Q = self.termiskEffekt/self.bransleelement/self.stavar/self.langd  # W/cm
         self.tempDiff = self.lin_Q/(4 * math.pi * self.thermCon)  # slide 10 F10
-        q_water = self.U_vatten * (self.t_u - self.tempDiff)
+        q_water = self.U_vatten * (self.fuel_T - self.tempDiff)
         heat_to_w = q_water * self.sek_kontakt
         m = 0.42114504425  # uträknat värde för vatten kring bränslestaven
         self.t_out = heat_to_w/(m*self.c_p_H2O) + self.vatten_temp
@@ -160,15 +158,18 @@ class Reaktor:
     def calcdT_dt(self):
         p_bort = self.lin_Q*self.bransleelement/self.stavar/self.langd
         self.dT_dt = ((self.termiskEffekt - p_bort) * self.timeStep) / (self.c_p_UO2 * self.fuel_w)
-        self.t_u += self.dT_dt
+        self.fuel_T += self.dT_dt
 
 
 
 def main():
     R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, 0.10)
-    for _ in range(1_000):
-            R4.calc_konversion()
-            R4.calc_fission()
+    R4.calc_lin_heat_rate()
+    R4.calcdT_dt()
+    print(R4.fuel_T)
+    # for _ in range(1_000):
+    #         R4.calc_konversion()
+    #         R4.calc_fission()
 
 
 if __name__ == "__main__":
