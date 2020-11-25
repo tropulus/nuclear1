@@ -1,4 +1,5 @@
 import math
+import matplotlib.pyplot as plt
 from pyXSteam.XSteam import XSteam
 steamTable = XSteam(XSteam.UNIT_SYSTEM_MKS) # m/kg/sec/°C/bar/W
 
@@ -19,7 +20,7 @@ class Reaktor:
         self.radie = 0.41  # cm
         self.B1_th = 0.0082768
         self.fuel_T = 800  # K
-        self.vu_vm = 3.02  # volymförhållande fr. test.py
+        self.vm_vu = 3.02  # volymförhållande fr. test.py
         self.xi = 0.91  # KSU s.82
         self.stavar = 264
         self.langd = 3.42 * 100  # uträknat med data från specifikationen\bransleelement densitet & n_stavar
@@ -77,16 +78,17 @@ class Reaktor:
         self.sig_235_a = self.sig_235_f + self.sig_235_g
         self.sig_238_a = self.sig_238_f + self.sig_238_g
         self.sig_239_a = self.sig_239_f + self.sig_239_g
-        self.sigma_tot_w = 0.33344 * 2 * self.barn  # 2H
+        self.sig_w_a = 0.33344 * 2 * self.barn  # 2H
+        self.sig_w_s = 56.08 * self.barn
 
     def calc_konversion(self):  # vi kommer ha en för båda
         self.c_U = ((self.sig_238_a*self.N_U238)/(self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239)+
-                    ((self.sig_233_f*self.N_U233*self.nu_233+self.sig_235_f*self.N_U235*self.nu+self.sig_239_f*self.N_Pu239*self.nu_239)/
+                    ((self.sig_233_f*self.N_U233*self.nu_233+self.sig_235_f*self.N_U235*self.nu_U+self.sig_239_f*self.N_Pu239*self.nu_239)/
                      (self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239))*self.epsilon*self.P*(1-self.p_U))*\
                    ((self.N_U238*self.sig_238_a)/(self.N_Th232*self.sig_232_a + self.N_U238*self.sig_238_a))
 
         self.c_Th = ((self.sig_232_a*self.N_Th232)/(self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239)+
-                    ((self.sig_233_f*self.N_U233*self.nu_233+self.sig_235_f*self.N_U235*self.nu+self.sig_239_f*self.N_Pu239*self.nu_239)/
+                    ((self.sig_233_f*self.N_U233*self.nu_233+self.sig_235_f*self.N_U235*self.nu_U+self.sig_239_f*self.N_Pu239*self.nu_239)/
                     (self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239))*self.epsilon*self.P*(1-self.p_Th))*\
                    ((self.N_Th232*self.sig_232_a)/(self.N_Th232*self.sig_232_a+self.N_U238*self.sig_238_a))
 
@@ -97,11 +99,12 @@ class Reaktor:
         S = self.radie * 2 * math.pi * 1  # yta bränslekuts
         m = self.radie ** 2 * math.pi * 1 * self.rho_ThO2  # volym * densitet = massa
         sigma_300K_Th = (6.5 + 15.6 / math.sqrt(S/m)) * 10 ** -24  # cm^2
-        sigma_fuel_fuel_T = sigma_300K_U * (1 + B1_U * (math.sqrt(self.fuel_T) - math.sqrt(300)))
+        sigma_fuel_T_U = sigma_300K_U * (1 + B1_U * (math.sqrt(self.fuel_T) - math.sqrt(300)))
         sigma_fuel_T_Th = sigma_300K_Th * (1 + B1_Th * (math.sqrt(self.fuel_T) - math.sqrt(300)))
-        self.p_U = math.exp(-(1 - self.anrikning) * self.N_U238 * sigma_fuel_fuel_T * self.vu_vm /(self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
-        self.p_Th = math.exp(-(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_Th * self.vu_vm /
-                     (self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
+        self.p_U = math.exp(-(1 - self.anrikning) * self.N_U238 * sigma_fuel_T_U * 1/self.vm_vu /
+                            (self.xi * self.sig_w_s * self.calc_atom_karnor(self.rho_w*1E-3, 18)))
+        self.p_Th = math.exp(-(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_Th * self.vm_vu /
+                             (self.xi * self.sig_w_s * self.calc_atom_karnor(self.rho_w*1E-3, 18)))
 
     def calc_fission(self):
         denominator_f = self.N_U235 * self.sig_235_f + self.N_Pu239 * self.sig_239_f + self.N_U233 * self.sig_233_f
@@ -109,23 +112,23 @@ class Reaktor:
         chans_233 = (self.N_U233 * self.sig_233_f) / denominator_f
         self.fission_235 = ((self.N_U235 * self.sig_235_f) / denominator_f) * self.FR * 3600  # fissionerade 235
         self.fission_233 = ((self.N_U233 * self.sig_233_f) / denominator_f) * self.FR * 3600  # fissionerade 235
-        self.fission_239 = (1 - chans_235 - chans_233) * self.FR * 1  # fissionerade 239
+        self.fission_239 = (1 - chans_235 - chans_233) * self.FR * 3600  # fissionerade 239
 
         total_fission = self.fission_235 + self.fission_233 + self.fission_239
-        self.N_Pu239 += (total_fission) * self.c_U - self.fission_239
-        self.N_Pa233 += (total_fission) * self.c_Th - (self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233))
+        self.N_Pu239 += total_fission * self.c_U - self.fission_239
+        self.N_Pa233 += total_fission * self.c_Th - (self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233))
         self.N_U233 += - self.fission_233 + self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233)
         self.N_U235 -= self.fission_235
-        self.N_U238 -= (total_fission) * self.c_U
-        self.N_Th232 -= (total_fission) * self.c_Th
+        self.N_U238 -= total_fission * self.c_U
+        self.N_Th232 -= total_fission * self.c_Th
 
-        skapade = (total_fission) * self.c_U + self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233)
-        print(skapade / total_fission, self.c_U, self.c_Th)
-
-        skapade = (total_fission) * self.c_U + (total_fission) * self.c_Th + self.N_Pa233 * math.exp(
-            -3600 / self.halveringstid_Pa233)
-        anvanda = self.fission_235 + self.fission_233 + self.fission_239
-        print(skapade / anvanda, self.c_U, self.c_Th, self.p_U, self.p_Th)
+        # skapade = total_fission * self.c_U + self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233)
+        # print(skapade / total_fission, self.c_U, self.c_Th)
+        #
+        # skapade = total_fission * self.c_U + total_fission * self.c_Th + self.N_Pa233 * math.exp(
+        #     -3600 / self.halveringstid_Pa233)
+        # anvanda = self.fission_235 + self.fission_233 + self.fission_239
+        # print(skapade / anvanda, self.c_U, self.c_Th, self.p_U, self.p_Th)
 
     def calc_eta(self):  # termiska snabba fissionsfaktorn
         den = self.N_Pu239*self.sig_239_a + self.N_U238*self.sig_238_a + self.N_U235*self.sig_235_a + \
@@ -153,6 +156,7 @@ class Reaktor:
                                                                      self.N_U238 + self.N_Th232)
 
     def calc_reaktivitet(self):
+        self.k -= 0.317936701400725
         self.reak = (self.k - 1) / self.k
 
     def calc_effekt(self):
@@ -178,7 +182,7 @@ class Reaktor:
         area_m *= self.rho_w/self.rho_set_w
         self.v_b = area_b * self.langd * 1E4  # cm^3
         self.v_m = area_m * self.langd * 1E4  # cm^3
-        self.vu_vm = area_m/area_b
+        self.vm_vu = area_m/area_b
 
     def calcdT_dt(self):
         p_bort = self.lin_Q*self.bransleelement/self.stavar/self.langd
@@ -193,9 +197,10 @@ class Reaktor:
     def calc_f(self):
         makro_b = self.N_Pu239*self.sig_239_a + self.N_U238*self.sig_238_a + self.N_U235*self.sig_235_a\
                   + self.N_U233*self.sig_233_a + self.N_Th232*self.sig_232_a
-        makro_m = self.calc_atom_karnor(self.rho_w*1E-3, 18)*self.sigma_tot_w
+        makro_m = self.calc_atom_karnor(self.rho_w*1E-3, 18)*self.sig_w_a
         self.f = makro_b * self.v_b / (makro_b * self.v_b + makro_m * self.v_m)
         self.f *= 0.87
+
 
 def main():
     R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, 0)
@@ -205,10 +210,30 @@ def main():
     R4.calc_eta()
     R4.calc_p()
     R4.calc_k()
-    print(R4.p_U)
+    R4.calc_reaktivitet()
 
-    #for _ in range(1_000):
 
+
+
+    for _ in range(1_000):
+        R4.calc_konversion()
+        R4.calc_FR()
+        R4.calc_fission()
+
+        data1.append(R4.c_U), data2.append(R4.c_Th), data3.append(0)
+
+    plot()
+
+def plot():
+    plt.plot(data1, label='Uran')
+    plt.plot(data2, label='Thorium')
+    #plt.plot(data3, label='239')
+    plt.legend()
+    plt.show()
+
+
+
+data1, data2, data3 = [], [], []
 
 
 if __name__ == "__main__":
