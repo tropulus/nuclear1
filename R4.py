@@ -10,9 +10,11 @@ class Reaktor:
         # Reaktorparametrar
         self.termiskEffekt = termiskEffekt  # [W]
         self.drifttryck = drifttryck  # [MPa]
-        self.n_bransleelement = n_bransleelement  # Antal bransleelement
         self.branslevikt = branslevikt  # Vikt per bransleelement [kg]
-        self.bransleelement = 157
+        self.bransleelement = n_bransleelement
+        self.stav_per_ele = 264
+        self.n_knippen_styr = 48
+        self.stav_per_knippe = 24
         self.fuel_w = self.branslevikt * self.bransleelement
         self.radie = 0.41  # cm
         self.B1_th = 0.0082768
@@ -24,6 +26,9 @@ class Reaktor:
         self.thermCon = 0.024  # W/cm*K
         self.tot_kyl_flow = 142223  # kg/s
         self.sek_kontakt = 3.02165418695  # sekunder som kylvattnet kommer ha kontakt med samma stav
+        self.l_U = 0.08488246103215057  # uträknad i test.py
+        self.l_Th = 0.048023252115223215  # uträknad i test.py
+        self.l_Pu = 0.0324758978318962  # uträknad i test.py
 
         self.P = P  # Ickeläckagefaktor
         self.anrikning = anrikning  # Anrikningsgrad
@@ -36,13 +41,14 @@ class Reaktor:
         self.epsilon = 1.06  # Snabba fissionsfaktorn
         self.k = 1
         self.reak = 0
-        self.l = 0.0001
         self.timeStep=1E-3
         self.vatten_temp = 282.7  # kylvatten temp (t_in)
         self.U_vatten = 14.3  # W/cm/K
         self.c_p_UO2 = 0.4 * 1000  # J/(kgּK)
         self.c_p_H2O = 0.419 * 1000  # J/(kgּK)
         self.rho_set_w = steamTable.rho_pt(self.drifttryck*10, self.vatten_temp)
+        self.nu_233 = 2.49
+        self.nu_239 = 2.93
 
 
         # Antal atomkärnor
@@ -71,13 +77,18 @@ class Reaktor:
         self.sig_235_a = self.sig_235_f + self.sig_235_g
         self.sig_238_a = self.sig_238_f + self.sig_238_g
         self.sig_239_a = self.sig_239_f + self.sig_239_g
-        self.sigma_tot_w = 44 * self.barn  # dubbelkolla den här (för vatten)
+        self.sigma_tot_w = 0.33344 * 2 * self.barn  # 2H
 
     def calc_konversion(self):  # vi kommer ha en för båda
-        self.c_U = (self.sig_238_a*self.N_U238+self.sig_232_a*self.N_Th232)/(self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233) \
-                 + ((self.sig_235_f*self.N_U235 + self.sig_233_f*self.N_U233)/(self.sig_235_a*self.N_U235 + self.sig_233_a*self.N_U233))\
-                 * self.epsilon*self.nu*self.P*(1-self.p)
-        self.c_Th = self.c_U
+        self.c_U = ((self.sig_238_a*self.N_U238)/(self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239)+
+                    ((self.sig_233_f*self.N_U233*self.nu_233+self.sig_235_f*self.N_U235*self.nu+self.sig_239_f*self.N_Pu239*self.nu_239)/
+                     (self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239))*self.epsilon*self.P*(1-self.p_U))*\
+                   ((self.N_U238)/(self.N_Th232*1.33 + self.N_U238))
+
+        self.c_Th = ((self.sig_232_a*self.N_Th232)/(self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239)+
+                    ((self.sig_233_f*self.N_U233*self.nu_233+self.sig_235_f*self.N_U235*self.nu+self.sig_239_f*self.N_Pu239*self.nu_239)/
+                    (self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239))*self.epsilon*self.P*(1-self.p_Th))*\
+                   ((self.N_Th232*1.33)/(self.N_Th232*1.33+self.N_U238))
 
     def calc_p(self):  # Beräkning av resonaspassagefaktor
         B1_U = 6.1 * 10 ** -3 + 0.94 * 10 ** -2 / (self.radie * self.rho_UO2)
@@ -91,31 +102,39 @@ class Reaktor:
         self.p_U = math.exp(-(1 - self.anrikning) * self.N_U238 * sigma_fuel_fuel_T * self.vu_vm /(self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
         self.p_Th = math.exp(-(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_Th * self.vu_vm /
                      (self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
+        self.p_U= 0.76
+        self.p_Th = 0.
 
     def calc_fission(self):
-        denominator_f = self.N_U235 * self.sig_235_f + self.N_Pu239*self.sig_239_f + self.N_U233*self.sig_233_f
-        chans_235 = self.N_U235 * self.sig_235_f / denominator_f
-        chans_233 = self.N_U233 * self.sig_233_f / denominator_f
-        fission_235 = self.N_U235 * self.sig_235_f / denominator_f * self.FR * 3600  # fissionerade 235
-        fission_233 = self.N_U233 * self.sig_233_f / denominator_f * self.FR * 3600  # fissionerade 235
-        fission_239 = (1 - chans_235 - chans_233) * self.FR * 3600  # fissionerade 239
+        denominator_f = self.N_U235 * self.sig_235_f + self.N_Pu239 * self.sig_239_f + self.N_U233 * self.sig_233_f
+        chans_235 = (self.N_U235 * self.sig_235_f) / denominator_f
+        chans_233 = (self.N_U233 * self.sig_233_f) / denominator_f
+        self.fission_235 = ((self.N_U235 * self.sig_235_f) / denominator_f) * self.FR * 3600  # fissionerade 235
+        self.fission_233 = ((self.N_U233 * self.sig_233_f) / denominator_f) * self.FR * 3600  # fissionerade 235
+        self.fission_239 = (1 - chans_235 - chans_233) * self.FR * 1  # fissionerade 239
 
         absorption_235 = self.N_U235 * self.sig_235_a * self.neutronflux
         absorption_233 = self.N_U233 * self.sig_233_a * self.neutronflux
-
-        self.N_Pu239 += absorption_235*self.c_U - fission_239
-        self.N_Pa233 += absorption_233*self.c_Th - self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233)
+        abs = absorption_233 + absorption_235
+        total_fission = self.fission_235 + self.fission_233 + self.fission_239
+        self.N_Pu239 += (total_fission) * self.c_U - fission_239
+        self.N_Pa233 += (total_fission) * self.c_Th - (self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233))
         self.N_U233 += - fission_233 + self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233)
-        self.N_U235 -= fission_235
-        self.N_U238 -= fission_235*self.c_U
-        self.N_Th232 -= fission_233*self.c_Th
+        self.N_U235 -= self.fission_235
+        self.N_U238 -= (total_fission) * self.c_U
+        self.N_Th232 -= (total_fission) * self.c_Th
+
+        skapade = (total_fission) * self.c_U + (total_fission) * self.c_Th + self.N_Pa233 * math.exp(
+            -3600 / self.halveringstid_Pa233)
+        anvanda = fission_235 + fission_233 + fission_239
+        print(skapade / anvanda, self.c_U, self.c_Th, self.p_U, self.p_Th)
 
     def calc_eta(self):  # Beräkna snabba fissionsfaktorn
         self.eta = self.N_U235*self.nu/(self.N_U235*self.sig_235_a + self.N_U238*self.sig_238_a)
 
     def calc_FR(self):  # Beräknar fissionsraten
         self.FR = self.termiskEffekt / (3.2E-11) * self.rho_UO2/\
-                  (self.branslevikt*self.n_bransleelement*1000)  # Konveterar vikten till gram, beräknar fissionsraten
+                  (self.branslevikt*self.bransleelement*1000)  # Konveterar vikten till gram, beräknar fissionsraten
         self.neutronflux = self.FR / (self.calc_atom_karnor(
             self.rho_UO2, 233) * self.sig_233_f + self.calc_atom_karnor(self.rho_UO2, 235) * self.sig_235_f)
 
@@ -135,24 +154,28 @@ class Reaktor:
         self.reak = (self.k - 1) / self.k
 
     def calc_effekt(self):
-        self.termiskEffekt = self.termiskEffekt*math.exp(self.reak*3600/self.l)  # W
+        den = self.fission_233 + self.fission_235 + self.fission_239
+        l_viktad = self.l_U*self.fission_235/den + self.l_Th*self.fission_233/den + self.l_Pu*self.fission_239/den
+        self.termiskEffekt = self.termiskEffekt*math.exp(self.reak*3600/l_viktad)  # W
 
     def calc_lin_heat_rate(self):
         self.lin_Q = self.termiskEffekt/self.bransleelement/self.stavar/self.langd  # W/cm
         self.tempDiff = self.lin_Q/(4 * math.pi * self.thermCon)  # slide 10 F10
         q_water = self.U_vatten * (self.fuel_T - self.tempDiff)
         heat_to_w = q_water * self.sek_kontakt
-        m = 0.42114504425  # uträknat värde för vatten kring bränslestaven
+        m = 0.42114504425  # uträknat värde för vatten kring bränslestaven FIXA DET HÄR?
         self.t_out = heat_to_w/(m*self.c_p_H2O) + self.vatten_temp
         self.rho_w = steamTable.rho_pt(self.drifttryck*10, (self.t_out + self.vatten_temp)/2)
 
     def calc_volymf(self):
         r_c = 3.355 / 2  # m, uträknad härdradie
         r_b = self.radie / 100  # m, bränslekutsradie
-        area_b = r_b ** 2 * math.pi * 264 * 157
-        area_s = r_b ** 2 * math.pi * 48 * 24
+        area_b = r_b ** 2 * math.pi * self.stav_per_ele * self.bransleelement
+        area_s = r_b ** 2 * math.pi * self.n_knippen_styr * self.stav_per_knippe
         area_m = r_c ** 2 * math.pi - area_b - area_s
         area_m *= self.rho_w/self.rho_set_w
+        self.v_b = area_b * self.langd * 1E4  # cm^3
+        self.v_m = area_m * self.langd * 1E4  # cm^3
         self.vu_vm = area_m/area_b
 
     def calcdT_dt(self):
@@ -160,16 +183,29 @@ class Reaktor:
         self.dT_dt = ((self.termiskEffekt - p_bort) * self.timeStep) / (self.c_p_UO2 * self.fuel_w)
         self.fuel_T += self.dT_dt
 
+    def calc_k(self):
+        u_vikt = self.N_U238 / (self.N_U238 + self.N_Th232)
+        th_vikt = self.N_Th232 / (self.N_U238 + self.N_Th232)
+        self.k = self.eta * self.epsilon * (self.p_U * u_vikt + self.p_Th * th_vikt) * self.f * self.P
 
+    def calc_f(self):
+        makro_b = self.N_Pu239*self.sig_239_a + self.N_U238*self.sig_238_a + self.N_U235*self.sig_235_a\
+                  + self.N_U233*self.sig_233_a + self.N_Th232*self.sig_232_a
+        makro_m = self.calc_atom_karnor(self.rho_w*1E-3, 18)*self.sigma_tot_w
+        self.f = makro_b * self.v_b / (makro_b * self.v_b + makro_m * self.v_m)
+        self.f *= 0.87
 
 def main():
-    R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, 0.10)
+    R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, 0)
     R4.calc_lin_heat_rate()
-    R4.calcdT_dt()
-    print(R4.fuel_T)
-    # for _ in range(1_000):
-    #         R4.calc_konversion()
-    #         R4.calc_fission()
+    R4.calc_volymf()
+    R4.calc_f()
+    R4.calc_eta()
+    R4.calc_k()
+
+
+    #for _ in range(1_000):
+
 
 
 if __name__ == "__main__":
