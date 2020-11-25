@@ -83,12 +83,12 @@ class Reaktor:
         self.c_U = ((self.sig_238_a*self.N_U238)/(self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239)+
                     ((self.sig_233_f*self.N_U233*self.nu_233+self.sig_235_f*self.N_U235*self.nu+self.sig_239_f*self.N_Pu239*self.nu_239)/
                      (self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239))*self.epsilon*self.P*(1-self.p_U))*\
-                   ((self.N_U238)/(self.N_Th232*1.33 + self.N_U238))
+                   ((self.N_U238*self.sig_238_a)/(self.N_Th232*self.sig_232_a + self.N_U238*self.sig_238_a))
 
         self.c_Th = ((self.sig_232_a*self.N_Th232)/(self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239)+
                     ((self.sig_233_f*self.N_U233*self.nu_233+self.sig_235_f*self.N_U235*self.nu+self.sig_239_f*self.N_Pu239*self.nu_239)/
                     (self.sig_235_a*self.N_U235+self.sig_233_a*self.N_U233+self.sig_239_a*self.N_Pu239))*self.epsilon*self.P*(1-self.p_Th))*\
-                   ((self.N_Th232*1.33)/(self.N_Th232*1.33+self.N_U238))
+                   ((self.N_Th232*self.sig_232_a)/(self.N_Th232*self.sig_232_a+self.N_U238*self.sig_238_a))
 
     def calc_p(self):  # Beräkning av resonaspassagefaktor
         B1_U = 6.1 * 10 ** -3 + 0.94 * 10 ** -2 / (self.radie * self.rho_UO2)
@@ -111,9 +111,6 @@ class Reaktor:
         self.fission_233 = ((self.N_U233 * self.sig_233_f) / denominator_f) * self.FR * 3600  # fissionerade 235
         self.fission_239 = (1 - chans_235 - chans_233) * self.FR * 1  # fissionerade 239
 
-        absorption_235 = self.N_U235 * self.sig_235_a * self.neutronflux
-        absorption_233 = self.N_U233 * self.sig_233_a * self.neutronflux
-        abs = absorption_233 + absorption_235
         total_fission = self.fission_235 + self.fission_233 + self.fission_239
         self.N_Pu239 += (total_fission) * self.c_U - self.fission_239
         self.N_Pa233 += (total_fission) * self.c_Th - (self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233))
@@ -121,6 +118,9 @@ class Reaktor:
         self.N_U235 -= self.fission_235
         self.N_U238 -= (total_fission) * self.c_U
         self.N_Th232 -= (total_fission) * self.c_Th
+
+        skapade = (total_fission) * self.c_U + self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233)
+        print(skapade / total_fission, self.c_U, self.c_Th)
 
         skapade = (total_fission) * self.c_U + (total_fission) * self.c_Th + self.N_Pa233 * math.exp(
             -3600 / self.halveringstid_Pa233)
