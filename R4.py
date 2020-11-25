@@ -32,12 +32,12 @@ class Reaktor:
 
         self.P = P  # Ickeläckagefaktor
         self.anrikning = anrikning  # Anrikningsgrad
-        self.p_U = 1
-        self.p_Th = 1
         self.N_Th232_N_U238 = N_Th232_N_U238  # Förhållandet mellan thorium-232 och uran-238
         self.rho_UO2 = 10.97  # Densitet uranoxid g*cm^-3
         self.rho_ThO2 = 10  # Densitet Thouriumoxid g*cm^-3
-        self.nu = 2.43  # Antalet neutroner som frigörs vid fission
+        self.nu_U = 2.436  # Antalet neutroner som frigörs vid fission
+        self.nu_Th = 2.497
+        self.nu_Pu = 2.884
         self.epsilon = 1.06  # Snabba fissionsfaktorn
         self.k = 1
         self.reak = 0
@@ -102,8 +102,6 @@ class Reaktor:
         self.p_U = math.exp(-(1 - self.anrikning) * self.N_U238 * sigma_fuel_fuel_T * self.vu_vm /(self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
         self.p_Th = math.exp(-(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_Th * self.vu_vm /
                      (self.xi * self.sigma_tot_w * self.calc_atom_karnor(1, 18)))
-        self.p_U= 0.76
-        self.p_Th = 0.
 
     def calc_fission(self):
         denominator_f = self.N_U235 * self.sig_235_f + self.N_Pu239 * self.sig_239_f + self.N_U233 * self.sig_233_f
@@ -117,20 +115,24 @@ class Reaktor:
         absorption_233 = self.N_U233 * self.sig_233_a * self.neutronflux
         abs = absorption_233 + absorption_235
         total_fission = self.fission_235 + self.fission_233 + self.fission_239
-        self.N_Pu239 += (total_fission) * self.c_U - fission_239
+        self.N_Pu239 += (total_fission) * self.c_U - self.fission_239
         self.N_Pa233 += (total_fission) * self.c_Th - (self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233))
-        self.N_U233 += - fission_233 + self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233)
+        self.N_U233 += - self.fission_233 + self.N_Pa233 * math.exp(-3600 / self.halveringstid_Pa233)
         self.N_U235 -= self.fission_235
         self.N_U238 -= (total_fission) * self.c_U
         self.N_Th232 -= (total_fission) * self.c_Th
 
         skapade = (total_fission) * self.c_U + (total_fission) * self.c_Th + self.N_Pa233 * math.exp(
             -3600 / self.halveringstid_Pa233)
-        anvanda = fission_235 + fission_233 + fission_239
+        anvanda = self.fission_235 + self.fission_233 + self.fission_239
         print(skapade / anvanda, self.c_U, self.c_Th, self.p_U, self.p_Th)
 
-    def calc_eta(self):  # Beräkna snabba fissionsfaktorn
-        self.eta = self.N_U235*self.nu/(self.N_U235*self.sig_235_a + self.N_U238*self.sig_238_a)
+    def calc_eta(self):  # termiska snabba fissionsfaktorn
+        den = self.N_Pu239*self.sig_239_a + self.N_U238*self.sig_238_a + self.N_U235*self.sig_235_a + \
+              self.N_U233*self.sig_233_a + self.N_Th232*self.sig_232_a
+        num = self.N_Pu239*self.sig_239_f*self.nu_Pu + self.N_U235*self.sig_235_f*self.nu_U + \
+              self.N_U233*self.sig_233_f*self.nu_Th
+        self.eta = (num)/(den)
 
     def calc_FR(self):  # Beräknar fissionsraten
         self.FR = self.termiskEffekt / (3.2E-11) * self.rho_UO2/\
@@ -201,8 +203,9 @@ def main():
     R4.calc_volymf()
     R4.calc_f()
     R4.calc_eta()
+    R4.calc_p()
     R4.calc_k()
-
+    print(R4.p_U)
 
     #for _ in range(1_000):
 
