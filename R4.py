@@ -1,6 +1,10 @@
 import math
 import matplotlib.pyplot as plt
 from pyXSteam.XSteam import XSteam
+import numpy as np
+import pandas as pd
+import  seaborn  as sns
+from sklearn.linear_model import LinearRegression
 steamTable = XSteam(XSteam.UNIT_SYSTEM_MKS) # m/kg/sec/°C/bar/W
 
 
@@ -27,7 +31,7 @@ class Reaktor:
         self.langd = 3.42 * 100  # uträknat med data från specifikationen\bransleelement densitet & n_stavar
         self.thermCon = 0.024  # W/cm*K
         self.tot_kyl_flow = 142223  # kg/s
-        self.sek_kontakt = 3.02165418695  # sekunder som kylvattnet kommer ha kontakt med samma stav
+        self.sek_kontakt = self.langd/100/3  # sekunder som kylvattnet kommer ha kontakt med samma stav
         self.l_U = 0.08488246103215057  # uträknad i test.py
         self.l_Th = 0.048023252115223215  # uträknad i test.py
         self.l_Pu = 0.0324758978318962  # uträknad i test.py
@@ -43,8 +47,7 @@ class Reaktor:
         self.epsilon = 1.06  # Snabba fissionsfaktorn
         self.k = 1
         self.reak = 0
-        self.timeStep=1E-3
-        self.timeStep1 = 1
+        self.timeStep = 3600
         self.vatten_temp = 282.7  # kylvatten temp (t_in)
         self.U_vatten = 14.3  # W/cm/K
         self.c_p_UO2 = 0.4 * 1000  # J/(kgּK)
@@ -97,38 +100,40 @@ class Reaktor:
     def calc_p(self):  # Beräkning av resonaspassagefaktor
         B1_U = 6.1 * 10 ** -3 + 0.94 * 10 ** -2 / (self.radie * self.rho_UO2)
         B1_Th = self.B1_th  # uträknat med integralförhållande
+        #print('B1, U, Th: ',B1_U, B1_Th)
+
         sigma_300K_U = (3.0 + 39.6 / math.sqrt(self.radie * self.rho_UO2)) * 10 ** -24  # cm^2
         S = self.radie * 2 * math.pi * 1  # yta bränslekuts
         m = self.radie ** 2 * math.pi * 1 * self.rho_ThO2  # volym * densitet = massa
         sigma_300K_Th = (6.5 + 15.6 / math.sqrt(S/m)) * 10 ** -24  # cm^2
         sigma_fuel_T_U = sigma_300K_U * (1 + B1_U * (math.sqrt(self.fuel_T) - math.sqrt(300)))
         sigma_fuel_T_Th = sigma_300K_Th * (1 + B1_Th * (math.sqrt(self.fuel_T) - math.sqrt(300)))
+        #print('global U Th',sigma_fuel_T_U, sigma_fuel_T_Th )
         self.p_U = math.exp(-(1 - self.anrikning) * self.N_U238 * sigma_fuel_T_U * 1/self.vm_vu /
                             (self.xi * self.sig_w_s * self.calc_atom_karnor(self.rho_w*1E-3, 18)))
-        self.p_Th = math.exp(-(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_Th * self.vm_vu /
+        self.p_Th = math.exp(-(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_Th * 1/self.vm_vu /
                              (self.xi * self.sig_w_s * self.calc_atom_karnor(self.rho_w*1E-3, 18)))
 
     def calc_fission(self):
         denominator_f = self.N_U235 * self.sig_235_f + self.N_Pu239 * self.sig_239_f + self.N_U233 * self.sig_233_f
         chans_235 = (self.N_U235 * self.sig_235_f) / denominator_f
         chans_233 = (self.N_U233 * self.sig_233_f) / denominator_f
-        self.fission_235 = ((self.N_U235 * self.sig_235_f) / denominator_f) * self.FR * self.timeStep1  # fissionerade 235
-        self.fission_233 = ((self.N_U233 * self.sig_233_f) / denominator_f) * self.FR * self.timeStep1  # fissionerade 235
-        self.fission_239 = (1 - chans_235 - chans_233) * self.FR * self.timeStep1  # fissionerade 239
-
+        self.fission_235 = ((self.N_U235 * self.sig_235_f) / denominator_f) * self.FR * self.timeStep  # fissionerade 235
+        self.fission_233 = ((self.N_U233 * self.sig_233_f) / denominator_f) * self.FR * self.timeStep  # fissionerade 235
+        self.fission_239 = (1 - chans_235 - chans_233) * self.FR * self.timeStep  # fissionerade 239
         total_fission = self.fission_235 + self.fission_233 + self.fission_239
         self.N_Pu239 += total_fission * self.c_U - self.fission_239
-        self.N_Pa233 += total_fission * self.c_Th - (self.N_Pa233 * math.exp(-self.timeStep1 / self.halveringstid_Pa233))
-        self.N_U233 += - self.fission_233 + self.N_Pa233 * math.exp(-self.timeStep1 / self.halveringstid_Pa233)
+        self.N_Pa233 += total_fission * self.c_Th - (self.N_Pa233 * math.exp(-self.timeStep / self.halveringstid_Pa233))
+        self.N_U233 += - self.fission_233 + self.N_Pa233 * math.exp(-self.timeStep / self.halveringstid_Pa233)
         self.N_U235 -= self.fission_235
         self.N_U238 -= total_fission * self.c_U
         self.N_Th232 -= total_fission * self.c_Th
 
-        # skapade = total_fission * self.c_U + self.N_Pa233 * math.exp(-self.timeStep1 / self.halveringstid_Pa233)
+        # skapade = total_fission * self.c_U + self.N_Pa233 * math.exp(-self.timeStep / self.halveringstid_Pa233)
         # print(skapade / total_fission, self.c_U, self.c_Th)
         #
         # skapade = total_fission * self.c_U + total_fission * self.c_Th + self.N_Pa233 * math.exp(
-        #     -self.timeStep1 / self.halveringstid_Pa233)
+        #     -self.timeStep / self.halveringstid_Pa233)
         # anvanda = self.fission_235 + self.fission_233 + self.fission_239
         # print(skapade / anvanda, self.c_U, self.c_Th, self.p_U, self.p_Th)
 
@@ -137,7 +142,7 @@ class Reaktor:
               self.N_U233*self.sig_233_a + self.N_Th232*self.sig_232_a
         num = self.N_Pu239*self.sig_239_f*self.nu_Pu + self.N_U235*self.sig_235_f*self.nu_U + \
               self.N_U233*self.sig_233_f*self.nu_Th
-        self.eta = (num)/(den)
+        self.eta = num/den
 
     def calc_FR(self):  # Beräknar fissionsraten
         self.FR = self.termiskEffekt / (3.2E-11) * self.rho_UO2/\
@@ -164,22 +169,25 @@ class Reaktor:
     def calc_effekt(self):
         den = self.fission_233 + self.fission_235 + self.fission_239
         self.l_viktad = self.l_U*self.fission_235/den + self.l_Th*self.fission_233/den + self.l_Pu*self.fission_239/den
-        self.termiskEffekt = self.termiskEffekt*math.exp(self.reak*self.timeStep1/self.l_viktad)  # W
+        #self.prev_effekt = self.termiskEffekt KOLLA PÅ DET HÄR-------------------------------------------
+        self.termiskEffekt = self.termiskEffekt*math.exp(self.reak*self.timeStep/self.l_viktad)  # W
 
 
     def calc_lin_heat_rate(self):
         self.lin_Q = self.termiskEffekt/self.bransleelement/self.stavar/self.langd  # W/cm
         self.tempDiff = self.lin_Q/(4 * math.pi * self.thermCon)  # slide 10 F10
         T_yta = self.fuel_T - self.tempDiff
-        q_water = self.U_vatten * (T_yta - self.vatten_temp)  # värme överförd till vattnet
+        q_water = self.U_vatten * T_yta  # värme överförd till vattnet
         heat_to_w = q_water * self.sek_kontakt
         m = 0.42114504425  # uträknat värde för vatten kring bränslestaven FIXA DET HÄR?
         self.t_out = heat_to_w/(m*self.c_p_H2O) + self.vatten_temp
-        if self.t_out < self.vatten_temp:
-            self.rho_w = steamTable.rho_pt(self.drifttryck*10, self.vatten_temp)
-        else:
-            self.rho_w = steamTable.rho_pt(self.drifttryck*10, (self.t_out + self.vatten_temp)/2)
+        # if self.t_out < self.vatten_temp:
+        #     self.rho_w = steamTable.rho_pt(self.drifttryck*10, self.vatten_temp)
+        # else:
+        self.rho_w = steamTable.rho_pt(self.drifttryck*10, (self.t_out + self.vatten_temp)/2)
 
+    def calc_rho_w(self):
+        self.rho_w = steamTable.rho_pt(self.drifttryck * 10, (self.t_out + self.vatten_temp) / 2)
 
     def calc_volymf(self):
         r_c = 3.355 / 2  # m, uträknad härdradie
@@ -199,6 +207,7 @@ class Reaktor:
     def calc_k(self):
         u_vikt = self.N_U238 / (self.N_U238 + self.N_Th232)
         th_vikt = self.N_Th232 / (self.N_U238 + self.N_Th232)
+        self.p = self.p_U * u_vikt + self.p_Th * th_vikt
         self.k = self.eta * self.epsilon * (self.p_U * u_vikt + self.p_Th * th_vikt) * self.f * self.P
 
     def calc_f(self):
@@ -209,50 +218,155 @@ class Reaktor:
         self.f *= 0.87
 
 
+
 def main():
-    R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, 0)
-    # R4.calc_lin_heat_rate()
-    # R4.calc_volymf()
-    # R4.calc_f()
-    # R4.calc_eta()
-    # R4.calc_p()
-    # R4.calc_k()
-    # R4.k -= 0.317936701400725
 
-    for _ in range(100000):
-        R4.calc_lin_heat_rate()
-        R4.calc_volymf()
-        R4.calc_f()
-        R4.calc_eta()
-        R4.calc_p()
-        R4.calc_k()
-        R4.calc_reaktivitet()
-        # if R4.reak < 0:
-        #     R4.reak += 1*1E-8
-        R4.calc_konversion()
-        R4.calc_FR()
-        R4.calc_fission()
-        R4.calcdT_dt()
-        R4.calc_effekt()
-        print(R4.k)
-        # print('k= ', R4.k)
-        # print('r= ', R4.reak)
-        # print('E= ', R4.termiskEffekt)
-        data1.append(R4.p_U*R4.f), data2.append(R4.p_U), data3.append(R4.f)
 
-    #plot()
+    # for c, e in enumerate(vector):
+    #     R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, e)
+    #     print(f'Th: {math.floor(e*100)} %')
+    #     R4.calc_FR()
+    #     R4.t_out = 323.9
+    #     R4.calc_rho_w()
+    #     R4.calc_p()
+    #     data_asd = []
+    #     for count, ele in enumerate(simuleringstid):
+    #
+    #         R4.calc_konversion()
+    #         R4.calc_fission()
+    #         den = R4.fission_235 + R4.fission_233 + R4.fission_239
+    #         vikt_239 = R4.fission_239/den
+    #         vikt_235 = R4.fission_235/den
+    #         vikt_233 = R4.fission_233/den
+    #         beta_U, beta_Pu, beta_Th = 0.0065, 0.0021, 0.0026
+    #         beta_w = vikt_233*beta_Th + vikt_235*beta_U + vikt_239*beta_Pu
+    #         data_asd.append(beta_w)
+    #     data_asd = np.array(data_asd)
+    #     data_asd = np.mean(data_asd)
+    #     data.append(data_asd)
+    #
+    # plot_beta()
 
-def plot():
-    plt.plot(data1, label='pf')
-    plt.plot(data2, label='p')
-    plt.plot(data3, label='f')
-    plt.legend()
-    plt.show()
 
+    # for c, e in enumerate(vector):
+    #     R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, e)
+    #     R4.calc_lin_heat_rate()
+    #     R4.calc_FR()
+    #     mean1, mean2, mean3 = [], [], []
+    #     for _ in range(1):
+    #         R4.reak = 0
+    #         R4.calc_p()
+    #         R4.calc_konversion()
+    #         R4.calc_fission()
+    #
+    #         mean1.append(R4.c_Th + R4.c_U)
+    #         mean2.append(R4.c_Th)
+    #         mean3.append(R4.c_U)
+    #     data1.append(np.mean(mean1)), data2.append(np.mean(R4.c_Th)), data3.append(np.mean(R4.c_U))
+    # plot_konvertering()
+
+
+
+    # for c, e in enumerate(vector):
+    #     R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, e)
+    #     print(f'Th: {math.floor(e*100)} %')
+    #     data = []
+    #     R4.t_out = 323.9
+    #     R4.calc_rho_w()
+    #     R4.calc_volymf()
+    #     for count, ele in enumerate(bransletemperatur):
+    #         R4.fuel_T = ele
+    #         R4.calc_p()
+    #         R4.calc_f()
+    #         R4.calc_eta()
+    #         R4.calc_k()
+    #         data.append(R4.k)
+    #
+    #     model = LinearRegression()
+    #     model.fit(bransletemperatur.reshape(-1, 1), data)
+    #     coef.append(model.coef_[0]*1E5)
+    #
+    # plot_btemp()
+
+
+
+    # for c, e in enumerate(vector):
+    #     R4 = Reaktor(3292E6, 15.5, 157, 523, 0.97, 0.03, e)
+    #     p_t = []
+    #     print(f'Th: {math.floor(e*100)} %')
+    #     for count, ele in enumerate(moderatortemperatur):
+    #         R4.t_out = ele
+    #         R4.calc_rho_w()
+    #         R4.calc_volymf()
+    #         R4.calc_p()
+    #         R4.calc_f()
+    #         R4.calc_eta()
+    #         R4.calc_k()
+    #         p_t.append(R4.k)
+    #
+    #     model = LinearRegression()
+    #     model.fit(moderatortemperatur.reshape(-1, 1), p_t)
+    #     coef.append(model.coef_[0]*1E5)
+    # plot_moderator()
+
+
+
+
+vector = np.linspace(0, 1, 101)  # för konverteringsgraden
+bransletemperatur = np.linspace(780, 840, 840 - 780 + 1)
+moderatortemperatur = np.linspace(282, 324, 324 - 282 + 1)
+simuleringstid = np.linspace(0, 24*30*18, 24*30*18 + 1)
+coef = []
+data = []
 
 
 data1, data2, data3 = [], [], []
 
+def plot_beta():
+    f = plt.figure()
+    plt.plot(vector, data)
+    plt.xlabel('Toriumhalt')
+    plt.ylabel('beta')
+    plt.title('Andel fördröjda neutroner som funktion av toriumhalt')
+    plt.grid()
+    plt.show()
+    f.savefig("beta.pdf", bbox_inches='tight')
+
+def plot_btemp():
+    f = plt.figure()
+    plt.plot(vector, coef)
+    #plt.plot(vector, np.linspace(0, 0, len(vector)), color='black')
+    plt.xlabel('Toriumhalt')
+    plt.ylabel('Bränsletemperaturskoefficient [pcm/C]')
+    plt.title('Bränsletemperaturens återkoppling som funktion av toriumhalt')
+    plt.grid()
+    plt.show()
+    f.savefig("btemp.pdf", bbox_inches='tight')
+
+def plot_moderator():
+    f = plt.figure()
+    plt.plot(vector, coef)
+    #plt.plot(vector, np.linspace(0, 0, len(vector)), color='black')
+    plt.xlabel('Toriumhalt')
+    plt.ylabel('Moderatortemperaturkoefficient [pcm/C]')
+    plt.title('Moderators återkoppling som funktion av toriumhalt')
+    plt.grid()
+    plt.show()
+    f.savefig("moderator.pdf", bbox_inches='tight')
+
+def plot_konvertering():
+    a = sns.color_palette()
+    f = plt.figure()
+    plt.plot(vector, data1, label='Total konverteringskvot')
+    plt.plot(vector, data2, label='Konverteringskvot Torium')
+    plt.plot(vector, data3, label='Konverteringskvot Uran')
+    plt.title('Konverteringskvot som funktion av torium-halt')
+    plt.xlabel('Toriumhalt')
+    plt.ylabel('Konverteringskvot, c')
+    plt.legend()
+    plt.grid()
+    plt.show()
+    f.savefig("1h.pdf", bbox_inches='tight')
 
 if __name__ == "__main__":
    main()
