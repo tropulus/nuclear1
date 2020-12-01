@@ -104,6 +104,12 @@ class Reaktor:
         sigma_300K_Th = (6.5 + 15.6 / math.sqrt(S/m)) * 10 ** -24  # cm^2
         sigma_fuel_T_U = sigma_300K_U * (1 + B1_U * (math.sqrt(self.fuel_T) - math.sqrt(300)))
         sigma_fuel_T_Th = sigma_300K_Th * (1 + B1_Th * (math.sqrt(self.fuel_T) - math.sqrt(300)))
+
+        self.p = math.exp((-(1 - self.anrikning) * self.N_U238 * sigma_fuel_T_U * 1 / self.vm_vu /
+                           (self.xi * self.sig_w_s * self.calc_atom_karnor(self.rho_w * 1E-3, 18))) +
+                          -(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_Th * 1 / self.vm_vu /
+                          (self.xi * self.sig_w_s * self.calc_atom_karnor(self.rho_w * 1E-3, 18)))
+
         self.p_U = math.exp(-(1 - self.anrikning) * self.N_U238 * sigma_fuel_T_U * 1/self.vm_vu /
                             (self.xi * self.sig_w_s * self.calc_atom_karnor(self.rho_w*1E-3, 18)))
         self.p_Th = math.exp(-(1 - self.anrikning) * self.N_Th232 * sigma_fuel_T_Th * 1/self.vm_vu /
@@ -198,8 +204,9 @@ class Reaktor:
     def calc_k(self):
         u_vikt = self.N_U238 / (self.N_U238 + self.N_Th232)
         th_vikt = self.N_Th232 / (self.N_U238 + self.N_Th232)
-        self.p = self.p_U * u_vikt + self.p_Th * th_vikt
-        self.k = self.eta * self.epsilon * (self.p_U * u_vikt + self.p_Th * th_vikt) * self.f * self.P
+        #self.p = self.p_U * u_vikt + self.p_Th * th_vikt
+        #self.k = self.eta * self.epsilon * (self.p_U * u_vikt + self.p_Th * th_vikt) * self.f * self.P
+        self.k = self.eta * self.epsilon * self.p * self.f * self.P
 
     def calc_f(self):
         makro_b = self.N_Pu239*self.sig_239_a + self.N_U238*self.sig_238_a + self.N_U235*self.sig_235_a\
@@ -210,9 +217,9 @@ class Reaktor:
 
 
 def main():
-    beta()
-    #konvertering()
     #beta()
+    #konvertering()
+    #moderator()
     #branslet()
 
 
@@ -254,7 +261,7 @@ def beta():
         data_asd = np.array(data_asd)
         data_asd = np.mean(data_asd)
         data.append(data_asd)
-    plot_foo()
+    plot_beta()
 
 
 def konvertering():
@@ -294,6 +301,7 @@ def branslet():
         model.fit(bransletemperatur.reshape(-1, 1), data)
         coef.append(model.coef_[0]*1E5)
     plot_btemp()
+    plot_foo()
 
 
 def moderator():
@@ -310,8 +318,8 @@ def moderator():
             R4.calc_eta()
             R4.calc_k()
             p_t.append(R4.k)
-        plt.plot(moderatortemperatur, p_t)
-        plt.show()
+        #plt.plot(moderatortemperatur, p_t)
+        #plt.show()
         model = LinearRegression()
         model.fit(moderatortemperatur.reshape(-1, 1), p_t)
         coef.append(model.coef_[0]*1E5)
@@ -327,6 +335,7 @@ def plot_foo():
     plt.ylabel('Fissioner')
     plt.xlabel('Toriumhalt')
     plt.legend()
+    plt.grid()
     plt.show()
     f.savefig("fissioner.pdf", bbox_inches='tight')
 
